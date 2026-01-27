@@ -91,7 +91,7 @@ export default function ImportEvidence() {
   const clientSecret = import.meta.env.VITE_XRAY_CLIENT_SECRET || "";
 
   const extractTestRunNumber = (filename: string): string | null => {
-    const match = filename.match(/^(?:UAAS-)?(\d+)(?:-.*)?\./);
+    const match = filename.match(/^(?:UAAS-)?(\d+)(?:[-_].*)?\./);
     return match ? match[1] : null;
   };
 
@@ -291,7 +291,7 @@ export default function ImportEvidence() {
           file,
           reason: "invalid_format",
           reasonText:
-            "Formato de nome incorreto. Deve seguir: UAAS-<número>.extensão, UAAS-<número>-qualquer_coisa.extensão, <número>.extensão ou <número>-qualquer_coisa.extensão",
+            "Formato de nome incorreto. Deve seguir: UAAS-<número>.extensão, UAAS-<número>-qualquer_coisa.extensão, UAAS-<número>_qualquer_coisa.extensão, <número>.extensão, <número>-qualquer_coisa.extensão ou <número>_qualquer_coisa.extensão",
         });
         invalid.push(file);
         return;
@@ -1712,7 +1712,21 @@ export default function ImportEvidence() {
                                       : "bg-gray-100 text-yellow-600"
                                   }`}
                                 >
-                                  UAAS-123-screenshot.jpeg
+                                  UAAS-123-evidence.jpeg
+                                </code>
+                              </span>
+                            </li>
+                            <li className="flex items-start gap-2">
+                              <span className="text-green-500 mt-1">✓</span>
+                              <span>
+                                <code
+                                  className={`px-1.5 py-0.5 rounded ${
+                                    isDarkMode
+                                      ? "bg-gray-700 text-yellow-400"
+                                      : "bg-gray-100 text-yellow-600"
+                                  }`}
+                                >
+                                  UAAS-123_evidence.png
                                 </code>
                               </span>
                             </li>
