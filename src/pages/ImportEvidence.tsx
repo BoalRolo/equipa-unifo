@@ -430,6 +430,17 @@ export default function ImportEvidence() {
     }
 
     if (!xrayBaseUrl || !clientId || !clientSecret) {
+      setValidationResult({
+        valid: false,
+        error:
+          "As credenciais do Xray Cloud não estão configuradas. Verifique as variáveis de ambiente VITE_XRAY_BASE_URL, VITE_XRAY_CLIENT_ID e VITE_XRAY_CLIENT_SECRET.",
+      });
+      setTestExecutionKey("");
+      console.error("Variáveis de ambiente não configuradas:", {
+        xrayBaseUrl: !!xrayBaseUrl,
+        clientId: !!clientId,
+        clientSecret: !!clientSecret,
+      });
       return;
     }
 
@@ -438,7 +449,15 @@ export default function ImportEvidence() {
     setResult(null);
 
     try {
+      console.log("Iniciando validação...", {
+        number,
+        xrayBaseUrl: xrayBaseUrl ? "SET" : "MISSING",
+        clientId: clientId ? "SET" : "MISSING",
+        backendUrl: import.meta.env.VITE_BACKEND_URL || "MISSING",
+      });
+
       const token = await authenticateXray(xrayBaseUrl, clientId, clientSecret);
+      console.log("Autenticação bem-sucedida");
 
       const cleanNumber = number
         .trim()
@@ -446,6 +465,7 @@ export default function ImportEvidence() {
         .replace(/[^0-9]/g, "");
       const fullKey = `UAAS-${cleanNumber}`;
 
+      console.log("Validando Test Execution:", fullKey);
       const validation = await validateTestExecution(
         xrayBaseUrl,
         token,
@@ -453,6 +473,7 @@ export default function ImportEvidence() {
       );
 
       if (validation.valid) {
+        console.log("Validação bem-sucedida:", validation);
         setTestExecutionKey(fullKey);
         setValidationResult(validation);
 
@@ -480,16 +501,46 @@ export default function ImportEvidence() {
           folderInputRef.current.value = "";
         }
       } else {
+        console.log("Validação falhou:", validation);
         setTestExecutionKey("");
         setValidationResult(validation);
       }
     } catch (error: any) {
+      console.error("Erro ao validar Test Execution:", error);
       setTestExecutionKey("");
+
+      let errorMessage = error.message || "Erro ao validar Test Execution.";
+
+      // Mensagens de erro mais específicas
+      if (error.message?.includes("CORS")) {
+        errorMessage =
+          "Erro CORS: O servidor não permite requisições do frontend. Verifique a configuração do backend.";
+      } else if (
+        error.message?.includes("Failed to fetch") ||
+        error.message?.includes("NetworkError")
+      ) {
+        errorMessage = `Erro de rede: Não foi possível conectar ao backend. Verifique se o backend está a correr em ${
+          import.meta.env.VITE_BACKEND_URL || "a URL configurada"
+        }.`;
+      } else if (error.message?.includes("404")) {
+        errorMessage =
+          "Endpoint não encontrado. Verifique se a URL do backend está correta.";
+      } else if (
+        error.message?.includes("401") ||
+        error.message?.includes("403")
+      ) {
+        errorMessage =
+          "Erro de autenticação. Verifique as credenciais do Xray Cloud.";
+      }
+
       setValidationResult({
         valid: false,
-        error:
-          error.message ||
-          "Erro ao validar Test Execution. Verifique se o backend está a correr.",
+        error: errorMessage,
+      });
+
+      setResult({
+        success: false,
+        message: errorMessage,
       });
     } finally {
       setIsValidating(false);
@@ -519,6 +570,27 @@ export default function ImportEvidence() {
       });
       return;
     }
+
+    // Verificar variáveis de ambiente antes de validar
+    if (!xrayBaseUrl || !clientId || !clientSecret) {
+      setResult({
+        success: false,
+        message:
+          "As credenciais do Xray Cloud não estão configuradas. Verifique as variáveis de ambiente VITE_XRAY_BASE_URL, VITE_XRAY_CLIENT_ID e VITE_XRAY_CLIENT_SECRET.",
+      });
+      setValidationResult({
+        valid: false,
+        error: "Credenciais não configuradas",
+      });
+      console.error("Variáveis de ambiente não configuradas:", {
+        xrayBaseUrl: xrayBaseUrl || "MISSING",
+        clientId: clientId ? "SET" : "MISSING",
+        clientSecret: clientSecret ? "SET" : "MISSING",
+        backendUrl: import.meta.env.VITE_BACKEND_URL || "MISSING",
+      });
+      return;
+    }
+
     validateTestExecutionKey(testExecutionNumber);
   };
 
@@ -747,7 +819,11 @@ export default function ImportEvidence() {
 
           // Warn if payload is getting large (Vercel limit is ~4.5MB for Pro)
           if (payloadSizeMB > 3) {
-            console.warn(`Payload size: ${payloadSizeMB.toFixed(2)}MB for batch ${batchIdx + 1}`);
+            console.warn(
+              `Payload size: ${payloadSizeMB.toFixed(2)}MB for batch ${
+                batchIdx + 1
+              }`
+            );
           }
 
           await importExecution(xrayBaseUrl, token, importData);
@@ -757,33 +833,45 @@ export default function ImportEvidence() {
           });
         } catch (error: any) {
           const errorMessage = error.message || "Falha ao enviar via REST API";
-          
+
           // If it's a 413 or payload too large error, mark all in batch as failed
           // and provide clear error message
           batch.forEach(([testRunNumber]) => {
             failed.push({
               testRun: `UAAS-${testRunNumber}`,
-              error: errorMessage.includes("413") || errorMessage.includes("muito grande") || errorMessage.includes("Payload muito grande")
-                ? `Payload muito grande: ${errorMessage}`
-                : errorMessage,
+              error:
+                errorMessage.includes("413") ||
+                errorMessage.includes("muito grande") ||
+                errorMessage.includes("Payload muito grande")
+                  ? `Payload muito grande: ${errorMessage}`
+                  : errorMessage,
             });
           });
-          
+
           // If it's a payload size error, stop processing remaining batches
           // to avoid wasting time on requests that will also fail
-          if (errorMessage.includes("413") || errorMessage.includes("muito grande") || errorMessage.includes("Payload muito grande")) {
+          if (
+            errorMessage.includes("413") ||
+            errorMessage.includes("muito grande") ||
+            errorMessage.includes("Payload muito grande")
+          ) {
             // Mark remaining batches as failed
-            for (let remainingIdx = batchIdx + 1; remainingIdx < batches.length; remainingIdx++) {
+            for (
+              let remainingIdx = batchIdx + 1;
+              remainingIdx < batches.length;
+              remainingIdx++
+            ) {
               batches[remainingIdx].forEach(([testRunNumber]) => {
                 failed.push({
                   testRun: `UAAS-${testRunNumber}`,
-                  error: "Não processado: Batch anterior falhou devido a payload muito grande",
+                  error:
+                    "Não processado: Batch anterior falhou devido a payload muito grande",
                 });
               });
             }
             break; // Exit the batch loop
           }
-          
+
           continue;
         }
 
@@ -894,14 +982,15 @@ export default function ImportEvidence() {
       if (animationInterval) clearInterval(animationInterval);
 
       const allSuccessful = failed.length === 0 && completed.length > 0;
-      
+
       // Show detailed error message if all failed or if there were critical errors
-      const hasPayloadErrors = failed.some(f => 
-        f.error.includes("413") || 
-        f.error.includes("muito grande") || 
-        f.error.includes("Payload muito grande")
+      const hasPayloadErrors = failed.some(
+        (f) =>
+          f.error.includes("413") ||
+          f.error.includes("muito grande") ||
+          f.error.includes("Payload muito grande")
       );
-      
+
       let resultMessage = "";
       if (allSuccessful) {
         resultMessage = `Importação realizada com sucesso! ${completed.length} test run(s) atualizado(s).`;
@@ -925,10 +1014,12 @@ export default function ImportEvidence() {
         completed: [...completed],
         inProgress: [],
         failed: [...failed],
-        animatedProgress: allSuccessful ? 100 : (completed.length / totalTestRuns) * 100,
+        animatedProgress: allSuccessful
+          ? 100
+          : (completed.length / totalTestRuns) * 100,
         dynamicMessage: "",
       });
-      
+
       setResult({
         success: allSuccessful,
         message: resultMessage,
@@ -1024,6 +1115,43 @@ export default function ImportEvidence() {
               >
                 Test Execution
               </h3>
+
+              {/* Aviso se variáveis de ambiente não estão configuradas */}
+              {(!xrayBaseUrl || !clientId || !clientSecret) && (
+                <div className="mb-4 p-4 rounded-lg bg-red-900/20 border border-red-500/50">
+                  <div className="flex items-start gap-2">
+                    <span className="text-red-500 text-lg">⚠</span>
+                    <div>
+                      <p
+                        className={`text-sm font-medium ${
+                          isDarkMode ? "text-red-400" : "text-red-600"
+                        }`}
+                      >
+                        Credenciais não configuradas
+                      </p>
+                      <p
+                        className={`text-xs mt-1 ${
+                          isDarkMode ? "text-red-300" : "text-red-700"
+                        }`}
+                      >
+                        As variáveis de ambiente VITE_XRAY_BASE_URL,
+                        VITE_XRAY_CLIENT_ID e VITE_XRAY_CLIENT_SECRET não estão
+                        configuradas. O botão "Validar" não funcionará até que
+                        estas variáveis sejam configuradas.
+                      </p>
+                      <p
+                        className={`text-xs mt-2 font-mono ${
+                          isDarkMode ? "text-red-200" : "text-red-800"
+                        }`}
+                      >
+                        Backend URL:{" "}
+                        {import.meta.env.VITE_BACKEND_URL || "NÃO CONFIGURADO"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label
                   className={`block text-sm font-medium mb-2 ${
@@ -1076,9 +1204,19 @@ export default function ImportEvidence() {
                   </div>
                   <button
                     onClick={handleValidateClick}
-                    disabled={isValidating || !testExecutionNumber.trim()}
+                    disabled={
+                      isValidating ||
+                      !testExecutionNumber.trim() ||
+                      !xrayBaseUrl ||
+                      !clientId ||
+                      !clientSecret
+                    }
                     className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-                      isValidating || !testExecutionNumber.trim()
+                      isValidating ||
+                      !testExecutionNumber.trim() ||
+                      !xrayBaseUrl ||
+                      !clientId ||
+                      !clientSecret
                         ? isDarkMode
                           ? "bg-gray-700 text-gray-500 cursor-not-allowed"
                           : "bg-gray-300 text-gray-500 cursor-not-allowed"
