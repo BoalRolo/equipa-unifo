@@ -32,12 +32,12 @@ export default function Login() {
     e.preventDefault();
 
     if (userId.length !== 4 && userId.length !== 6) {
-      setError("O ID do usuário deve ter 4 ou 6 dígitos");
+      setError("O ID do utilizador deve ter 4 ou 6 dígitos");
       return;
     }
 
     if (password.length !== 6 && password.length !== 8) {
-      setError("A senha deve ter 6 ou 8 dígitos");
+      setError("A palavra-passe deve ter 6 ou 8 dígitos");
       return;
     }
 
@@ -60,7 +60,7 @@ export default function Login() {
       // Navigate to home page
       navigate("/");
     } else {
-      setError("ID do usuário ou senha inválidos");
+      setError("ID do utilizador ou palavra-passe inválidos");
     }
   };
 
@@ -92,7 +92,7 @@ export default function Login() {
             isDarkMode ? "text-gray-300" : "text-gray-600"
           }`}
         >
-          Entre com suas credenciais
+          Entre com as suas credenciais
         </p>
       </div>
 
@@ -158,7 +158,7 @@ export default function Login() {
                   isDarkMode ? "text-gray-300" : "text-gray-700"
                 }`}
               >
-                Senha
+                Palavra-passe
               </label>
               <div className="mt-1 relative rounded-md shadow-sm">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
