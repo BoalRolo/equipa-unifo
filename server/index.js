@@ -109,10 +109,21 @@ app.post("/api/xray/authenticate", async (req, res) => {
     }
 });
 
+// Helper: infer content type from filename
+function getContentTypeFromFilename(filename) {
+    const ext = (filename || "").split(".").pop()?.toLowerCase();
+    const mime = {
+        png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+        mp4: "video/mp4", pdf: "application/pdf", txt: "text/plain", log: "text/plain",
+        json: "application/json",
+    };
+    return mime[ext] || "application/octet-stream";
+}
+
 // Endpoint para importação
 app.post("/api/xray/import", async (req, res) => {
     try {
-        const { xrayBaseUrl, token, importData } = req.body;
+        const { xrayBaseUrl, token, importData, existingEvidencesByTestKey } = req.body;
 
         if (!xrayBaseUrl || !token || !importData) {
             const missing = [];
@@ -125,14 +136,55 @@ app.post("/api/xray/import", async (req, res) => {
             });
         }
 
-        // Log the import data being sent for debugging
+        // Deep clone so we don't mutate the original
+        const payload = JSON.parse(JSON.stringify(importData));
+
+        // For each test that has existing evidences, fetch attachments in parallel and prepend to evidence array
+        if (existingEvidencesByTestKey && typeof existingEvidencesByTestKey === "object" && payload.tests) {
+            for (const test of payload.tests) {
+                const testKey = test.testKey;
+                const existingList = existingEvidencesByTestKey[testKey];
+                if (!Array.isArray(existingList) || existingList.length === 0) continue;
+
+                const fetchOne = async (ev) => {
+                    const url = `${xrayBaseUrl}/api/v1/attachments/${ev.id}`;
+                    const attRes = await fetch(url, {
+                        method: "GET",
+                        headers: { Authorization: `Bearer ${token}` },
+                    });
+                    if (!attRes.ok) return null;
+                    const buf = await attRes.arrayBuffer();
+                    const base64 = Buffer.from(buf).toString("base64");
+                    return {
+                        data: base64,
+                        filename: ev.filename || "attachment",
+                        contentType: getContentTypeFromFilename(ev.filename),
+                    };
+                };
+
+                const existingEvidenceItems = await Promise.all(existingList.map(fetchOne));
+                const valid = existingEvidenceItems.filter(Boolean);
+                const currentEvidence = test.evidences || test.evidence || [];
+                test.evidence = [...valid, ...currentEvidence];
+            }
+        }
+
+        // Xray API expects "evidence" (singular), not "evidences". Normalize so payload is valid Xray format.
+        if (payload.tests) {
+            for (const test of payload.tests) {
+                const list = test.evidence || test.evidences || [];
+                test.evidence = list;
+                delete test.evidences;
+            }
+        }
+
         const response = await fetch(`${xrayBaseUrl}/api/v2/import/execution`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify(importData),
+            body: JSON.stringify(payload),
         });
 
         if (!response.ok) {
@@ -474,6 +526,11 @@ app.post("/api/xray/validate-test-execution", async (req, res) => {
                                         name
                                     }
                                 }
+                                evidence {
+                                    id
+                                    filename
+                                    size
+                                }
                             }
                         }
                     }
@@ -553,6 +610,11 @@ app.post("/api/xray/validate-test-execution", async (req, res) => {
                                             testType {
                                                 name
                                             }
+                                        }
+                                        evidence {
+                                            id
+                                            filename
+                                            size
                                         }
                                     }
                                 }
@@ -637,6 +699,7 @@ app.post("/api/xray/validate-test-execution", async (req, res) => {
                 testJiraData = tr.test?.jira;
             }
 
+            const evidenceList = Array.isArray(tr.evidence) ? tr.evidence : (tr.evidence ? [tr.evidence] : []);
             return {
                 id: tr.id,
                 status: tr.status?.name || "UNKNOWN",
@@ -652,6 +715,11 @@ app.post("/api/xray/validate-test-execution", async (req, res) => {
                     summary: testJiraData?.summary || "",
                     testType: tr.test?.testType?.name || "",
                 },
+                evidence: evidenceList.map((e) => ({
+                    id: e.id,
+                    filename: e.filename || "",
+                    size: e.size != null ? e.size : 0,
+                })),
             };
         });
 

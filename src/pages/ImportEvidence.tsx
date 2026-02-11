@@ -10,6 +10,7 @@ import {
   XrayEvidence,
   XrayImportRequest,
   TestExecutionValidation,
+  type ExistingEvidencesByTestKey,
 } from "../services/xrayCloud";
 
 interface FileWithTestRun {
@@ -826,7 +827,22 @@ export default function ImportEvidence() {
             );
           }
 
-          await importExecution(xrayBaseUrl, token, importData);
+          const existingEvidencesByTestKey: ExistingEvidencesByTestKey = {};
+          if (validationResult?.testRuns?.results) {
+            for (const tr of validationResult.testRuns.results) {
+              if (tr.evidence?.length) {
+                existingEvidencesByTestKey[tr.test.key] = tr.evidence.map(
+                  (e) => ({ id: e.id, filename: e.filename, size: e.size })
+                );
+              }
+            }
+          }
+          await importExecution(
+            xrayBaseUrl,
+            token,
+            importData,
+            existingEvidencesByTestKey
+          );
 
           batch.forEach((entry) => {
             batchSuccessful.push(entry);
@@ -1968,6 +1984,13 @@ export default function ImportEvidence() {
                           ([testRunNumber, fileGroup]) => {
                             const isExpanded =
                               expandedTestRuns.has(testRunNumber);
+                            const testKey = `UAAS-${testRunNumber}`;
+                            const testRunWithEvidence =
+                              validationResult?.testRuns?.results?.find(
+                                (tr) => tr.test?.key === testKey
+                              );
+                            const existingEvidenceCount =
+                              testRunWithEvidence?.evidence?.length ?? 0;
                             return (
                               <div
                                 key={testRunNumber}
@@ -1994,7 +2017,7 @@ export default function ImportEvidence() {
                                     isDarkMode ? "bg-gray-700" : "bg-gray-50"
                                   } transition-colors`}
                                 >
-                                  <div className="flex items-center gap-2.5">
+                                  <div className="flex items-center gap-2.5 flex-wrap">
                                     <svg
                                       className={`w-4 h-4 transition-transform ${
                                         isExpanded ? "rotate-90" : ""
@@ -2033,6 +2056,18 @@ export default function ImportEvidence() {
                                       ({fileGroup.length} ficheiro
                                       {fileGroup.length !== 1 ? "s" : ""})
                                     </span>
+                                    {existingEvidenceCount > 0 && (
+                                      <span
+                                        className={`text-xs px-2 py-0.5 rounded ${
+                                          isDarkMode
+                                            ? "bg-blue-900/50 text-blue-300 border border-blue-700"
+                                            : "bg-blue-100 text-blue-700 border border-blue-300"
+                                        }`}
+                                        title="Evidências existentes no teste serão mantidas juntamente com as novas."
+                                      >
+                                        Evidências existentes no teste serão mantidas
+                                      </span>
+                                    )}
                                   </div>
                                 </button>
                                 {isExpanded && (

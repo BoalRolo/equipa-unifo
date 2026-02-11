@@ -77,14 +77,22 @@ export async function authenticateXray(
   return data.token;
 }
 
+/** Map of test key to existing evidence metadata (for merging on import) */
+export type ExistingEvidencesByTestKey = Record<
+  string,
+  Array<{ id: string; filename: string; size?: number }>
+>;
+
 /**
  * Imports test execution and evidences to Xray Cloud
- * Uses backend proxy to avoid CORS issues
+ * Uses backend proxy to avoid CORS issues.
+ * If existingEvidencesByTestKey is provided, backend fetches those attachments and merges with new evidences.
  */
 export async function importExecution(
   xrayBaseUrl: string,
   token: string,
-  importData: XrayImportRequest
+  importData: XrayImportRequest,
+  existingEvidencesByTestKey?: ExistingEvidencesByTestKey
 ): Promise<XrayImportResponse> {
   const backendUrl =
     import.meta.env.VITE_BACKEND_URL || "http://localhost:3001";
@@ -100,6 +108,9 @@ export async function importExecution(
         xrayBaseUrl,
         token,
         importData,
+        ...(existingEvidencesByTestKey && Object.keys(existingEvidencesByTestKey).length > 0
+          ? { existingEvidencesByTestKey }
+          : {}),
       }),
     });
 
@@ -234,6 +245,7 @@ export interface TestExecutionValidation {
         summary: string;
         testType: string;
       };
+      evidence?: Array<{ id: string; filename: string; size?: number }>;
     }>;
   };
   testIdsAndStatuses?: Array<{
